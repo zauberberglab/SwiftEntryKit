@@ -58,7 +58,7 @@ final class EKWindowProvider: EntryPresenterDelegate {
     
     // Prepare the window and the host view controller
     private func prepare(for attributes: EKAttributes, presentInsideKeyWindow: Bool) -> EKRootViewController? {
-        let entryVC = setupWindowAndRootVC()
+        let entryVC = setupWindowAndRootVC(for: attributes)
         guard entryVC.canDisplay(attributes: attributes) || attributes.precedence.isEnqueue else {
             return nil
         }
@@ -75,16 +75,47 @@ final class EKWindowProvider: EntryPresenterDelegate {
     }
     
     /** Boilerplate generic setup for entry-window and root-view-controller  */
-    private func setupWindowAndRootVC() -> EKRootViewController {
-        let entryVC: EKRootViewController
+    /// Moddified by Quoc Huy
+    private func setupWindowAndRootVC(for attributes: EKAttributes) -> EKRootViewController {
+        let sceneID = attributes.sceneID
+        var entryVC: EKRootViewController?
         if entryWindow == nil {
-            entryVC = EKRootViewController(with: self)
-            entryWindow = EKWindow(with: entryVC)
-            mainRollbackWindow = UIApplication.shared.keyWindow
+            createNewWindowAndRootVC(entryVC: &entryVC, sceneID: sceneID)
         } else {
-            entryVC = rootVC!
+            if let sceneID = attributes.sceneID {
+                if entryWindow!.windowScene?.session.persistentIdentifier == sceneID {
+                    entryVC = rootVC!
+                } else {
+                    // There is already a popup on another scene -> Need to create new window in new scene
+                    createNewWindowAndRootVC(entryVC: &entryVC, sceneID: sceneID)
+                }
+            } else {
+                entryVC = rootVC!
+            }
         }
-        return entryVC
+        return entryVC!
+    }
+    
+    /// Help function to create new window and root VC (by Quoc Huy)
+    func createNewWindowAndRootVC(entryVC: inout EKRootViewController?, sceneID: String?) {
+        entryVC = EKRootViewController(with: self)
+        entryWindow = EKWindow(with: entryVC!, sceneID: sceneID)
+        
+        if let destinationScene = UIApplication.shared.connectedScenes.filter({$0.session.persistentIdentifier == sceneID}).first as? UIWindowScene {
+            if #available(iOS 15.0, *) {
+                mainRollbackWindow = destinationScene.keyWindow
+            } else {
+                mainRollbackWindow = destinationScene.windows.first
+            }
+        } // Find one of active scenes
+        else if let scene = UIApplication.shared.connectedScenes.filter({$0.activationState == .foregroundActive}).first as? UIWindowScene {
+            mainRollbackWindow = scene.windows.first
+        }
+        /*  Original code from SwiftEntryKit, uncomment because deprecated in iOS 13.0 because of multi windows support
+         else {
+             mainRollbackWindow = UIApplication.shared.keyWindow
+         }
+         */
     }
     
     /**
@@ -152,7 +183,7 @@ final class EKWindowProvider: EntryPresenterDelegate {
     /** Clear all entries immediately and display to the rollback window */
     func displayRollbackWindow() {
         if #available(iOS 13.0, *) {
-            entryWindow.windowScene = nil
+            entryWindow?.windowScene = nil
         }
         entryWindow = nil
         entryView = nil

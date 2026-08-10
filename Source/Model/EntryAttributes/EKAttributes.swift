@@ -93,6 +93,10 @@ public struct EKAttributes {
             popBehavior.validate()
         }
     }
+    
+    /// Specify which scene contains the popup (useful for multiple windows support)
+    /// If your app only have one window, it should be set to nil
+    public var sceneID: String?
 
     /** Init with default attributes */
     public init() {}

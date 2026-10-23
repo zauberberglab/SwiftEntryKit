@@ -13,16 +13,9 @@ class EKWindow: UIWindow {
     var isAbleToReceiveTouches = false
     
     /// Moddified by Quoc Huy
-    init(with rootVC: UIViewController, sceneID: String?) {
-        // Find correspondence scene
-        if let sceneID = sceneID, let scene = UIApplication.shared.connectedScenes.filter({$0.session.persistentIdentifier == sceneID}).first as? UIWindowScene {
-            super.init(windowScene: scene)
-        } // Find one of active scenes
-        else if let scene = UIApplication.shared.connectedScenes.filter({$0.activationState == .foregroundActive}).first as? UIWindowScene {
-            super.init(windowScene: scene)
-        } else {
-            super.init(frame: UIScreen.main.bounds)
-        }
+    /// Always made inside a scene: a window without one has no user interface idiom, and a list inside it traps in UIKit (CollaNote bug 502-13).
+    init(with rootVC: UIViewController, scene: UIWindowScene) {
+        super.init(windowScene: scene)
         backgroundColor = .clear
         rootViewController = rootVC
         accessibilityViewIsModal = true

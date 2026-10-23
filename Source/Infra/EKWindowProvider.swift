@@ -58,7 +58,9 @@ final class EKWindowProvider: EntryPresenterDelegate {
     
     // Prepare the window and the host view controller
     private func prepare(for attributes: EKAttributes, presentInsideKeyWindow: Bool) -> EKRootViewController? {
-        let entryVC = setupWindowAndRootVC(for: attributes)
+        guard let entryVC = setupWindowAndRootVC(for: attributes) else {
+            return nil
+        }
         guard entryVC.canDisplay(attributes: attributes) || attributes.precedence.isEnqueue else {
             return nil
         }
@@ -76,52 +78,59 @@ final class EKWindowProvider: EntryPresenterDelegate {
     
     /** Boilerplate generic setup for entry-window and root-view-controller  */
     /// Moddified by Quoc Huy
-    private func setupWindowAndRootVC(for attributes: EKAttributes) -> EKRootViewController {
+    /// Nil when no scene is connected: an entry there could never be seen, so it is not shown.
+    private func setupWindowAndRootVC(for attributes: EKAttributes) -> EKRootViewController? {
+        dropWindowIfItLostItsScene()
         let sceneID = attributes.sceneID
-        var entryVC: EKRootViewController?
-        if entryWindow == nil {
-            createNewWindowAndRootVC(entryVC: &entryVC, sceneID: sceneID)
-        } else {
-            if let sceneID = attributes.sceneID {
-                if entryWindow!.windowScene?.session.persistentIdentifier == sceneID {
-                    entryVC = rootVC!
-                } else {
-                    // There is already a popup on another scene -> Need to create new window in new scene
-                    createNewWindowAndRootVC(entryVC: &entryVC, sceneID: sceneID)
-                }
-            } else {
-                entryVC = rootVC!
-            }
+        // The window is reused unless the entry asks for another scene
+        if let rootVC = rootVC, sceneID == nil || entryWindow.windowScene?.session.persistentIdentifier == sceneID {
+            return rootVC
         }
-        return entryVC!
+        guard let scene = scene(for: sceneID) else {
+            SwiftEntryKit.log?("popup not shown, no scene  requested=\(sceneID.map { String($0.prefix(8)) } ?? "nil")")
+            return nil
+        }
+        let entryVC = EKRootViewController(with: self)
+        entryWindow = EKWindow(with: entryVC, scene: scene)
+        mainRollbackWindow = scene.keyWindow ?? scene.windows.first
+        return entryVC
     }
     
-    /// Help function to create new window and root VC (by Quoc Huy)
-    func createNewWindowAndRootVC(entryVC: inout EKRootViewController?, sceneID: String?) {
-        entryVC = EKRootViewController(with: self)
-        entryWindow = EKWindow(with: entryVC!, sceneID: sceneID)
-        
-        if let destinationScene = UIApplication.shared.connectedScenes.filter({$0.session.persistentIdentifier == sceneID}).first as? UIWindowScene {
-            if #available(iOS 15.0, *) {
-                mainRollbackWindow = destinationScene.keyWindow
-            } else {
-                mainRollbackWindow = destinationScene.windows.first
-            }
-        } // Find one of active scenes
-        else if let scene = UIApplication.shared.connectedScenes.filter({$0.activationState == .foregroundActive}).first as? UIWindowScene {
-            mainRollbackWindow = scene.windows.first
+    /// The scene for a new window: the one asked for while it is still connected, else the active one, else one that is only inactive or in the background.
+    /// Until 23/10/2026 a window made with no active scene got no scene at all; nobody saw it, and a list inside it trapped in UIKit (CollaNote bug 502-13).
+    private func scene(for sceneID: String?) -> UIWindowScene? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        if let sceneID = sceneID, let scene = scenes.first(where: { $0.session.persistentIdentifier == sceneID }) {
+            return scene
         }
-        /*  Original code from SwiftEntryKit, uncomment because deprecated in iOS 13.0 because of multi windows support
-         else {
-             mainRollbackWindow = UIApplication.shared.keyWindow
-         }
-         */
+        if let scene = scenes.first(where: { $0.activationState == .foregroundActive }) {
+            return scene
+        }
+        let scene = scenes.first { $0.activationState == .foregroundInactive } ?? scenes.first { $0.activationState == .background }
+        if let scene = scene {
+            SwiftEntryKit.log?("popup window put in a scene that is not active  requested=\(sceneID.map { String($0.prefix(8)) } ?? "nil") state=\(scene.activationState.rawValue)")
+        }
+        return scene
+    }
+    
+    /// A window that lost its scene is never reused: nothing in it can be seen, and a list added to it traps in UIKit (CollaNote bug 502-13).
+    /// Its entries are removed at once with keepWindow, so none of them asks to roll back later, which would drop the next window instead.
+    private func dropWindowIfItLostItsScene() {
+        guard let window = entryWindow, window.windowScene == nil else {
+            return
+        }
+        SwiftEntryKit.log?("popup window lost its scene  displaying=\(isCurrentlyDisplaying()) queued=\(!entryQueue.isEmpty)")
+        rootVC?.removeAllEntriesPromptly()
+        entryWindow = nil
+        entryView = nil
     }
     
     /**
      Privately used to display an entry
      */
     private func display(entryView: EKEntryView, using attributes: EKAttributes, presentInsideKeyWindow: Bool, rollbackWindow: SwiftEntryKit.RollbackWindow) {
+        // First, so a new entry is never queued behind one that nobody can see
+        dropWindowIfItLostItsScene()
         switch entryView.attributes.precedence {
         case .override(priority: _, dropEnqueuedEntries: let dropEnqueuedEntries):
             if dropEnqueuedEntries {

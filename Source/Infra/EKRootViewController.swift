@@ -183,6 +183,14 @@ class EKRootViewController: UIViewController {
         }
     }
     
+    /// Removes every entry at once, keeping the window, so no entry asks the provider to roll back.
+    /// A dismissal still under way is finished here, so its completion runs as it would have.
+    func removeAllEntriesPromptly() {
+        let entries = view.subviews.compactMap { $0 as? EKContentView }
+        entries.forEach { $0.removePromptly(keepWindow: true) }
+        entries.compactMap { $0.dismissHandler }.forEach { $0() }
+    }
+    
     // Make last entry exit using exitAnimation - animatedly
     func animateOutLastEntry(completionHandler: SwiftEntryKit.DismissCompletionHandler? = nil) {
         lastEntry?.dismissHandler = completionHandler

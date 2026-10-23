@@ -47,6 +47,9 @@ public final class SwiftEntryKit {
     /** Cannot be instantiated, customized, inherited. */
     private init() {}
     
+    /// Called on the main queue with one short line when SwiftEntryKit steps around a window without a scene; CollaNote writes it to its debug log.
+    public static var log: ((String) -> Void)?
+    
     /**
      Returns the window that displays the entry.
      **Warning**: the returned `UIWindow` instance is `nil` in case
